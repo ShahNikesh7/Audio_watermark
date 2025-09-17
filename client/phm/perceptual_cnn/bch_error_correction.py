@@ -120,9 +120,9 @@ class CNNBCHEncoder(nn.Module):
                     self.rs_codec = reedsolo.RSCodec(
                         nsym=self.rs_parity_bytes,
                         nsize=self.rs_total_bytes,
-                        fcr=self.fcr,
-                        prim=self.prim,
-                        generator=self.primitive_poly,
+                        fcr=1,
+                        prim=0x11d,
+                        generator=2,
                         c_exp=8
                     )
                     logger.info(f"BCH codec initialized with RS parameters: "
@@ -138,9 +138,9 @@ class CNNBCHEncoder(nn.Module):
                     self.rs_codec = reedsolo.RSCodec(
                         nsym=chunk_parity_bytes,
                         nsize=chunk_total_bytes,
-                        fcr=self.fcr,
-                        prim=self.prim,
-                        generator=self.primitive_poly,
+                        fcr=1,
+                        prim=0x11d,
+                        generator=2,
                         c_exp=8
                     )
                     logger.info(f"BCH codec initialized with chunked RS: "
@@ -154,9 +154,9 @@ class CNNBCHEncoder(nn.Module):
                     self.rs_codec = reedsolo.RSCodec(
                         nsym=parity_bytes,
                         nsize=total_bytes,
-                        fcr=self.fcr,
-                        prim=self.prim,
-                        generator=self.primitive_poly,
+                        fcr=1,
+                        prim=0x11d,
+                        generator=2,
                         c_exp=8
                     )
                     logger.info(f"BCH codec initialized: nsym={parity_bytes}, nsize={total_bytes}")

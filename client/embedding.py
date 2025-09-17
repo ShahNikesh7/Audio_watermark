@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import librosa
 from typing import Union, Tuple, Dict, Optional
 import logging
@@ -88,6 +89,14 @@ class InvertibleEncoder(nn.Module):
         for layer in self.couplings:
             z = layer(z, cond)
         out = self.post(z)
+        # Ensure strict length preservation (crop/pad to match input length)
+        target_len = audio.shape[-1]
+        cur_len = out.shape[-1]
+        if cur_len > target_len:
+            out = out[..., :target_len]
+        elif cur_len < target_len:
+            pad_amt = target_len - cur_len
+            out = F.pad(out, (0, pad_amt), mode='replicate')
         return out
 
 
