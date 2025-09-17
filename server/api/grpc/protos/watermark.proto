@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package watermark;
+
+// Watermark service definition
+service WatermarkService {
+    // Embed watermark into audio
+    rpc EmbedWatermark(EmbedRequest) returns (EmbedResponse);
+    
+    // Extract watermark from audio
+    rpc ExtractWatermark(ExtractRequest) returns (ExtractResponse);
+    
+    // Detect presence of watermark
+    rpc DetectWatermark(DetectRequest) returns (DetectResponse);
+    
+    // Health check
+    rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+
+// Request messages
+message EmbedRequest {
+    bytes audio_data = 1;
+    string watermark_data = 2;
+    float strength = 3;
+    AudioFormat format = 4;
+}
+
+message ExtractRequest {
+    bytes audio_data = 1;
+    float confidence_threshold = 2;
+    AudioFormat format = 3;
+}
+
+message DetectRequest {
+    bytes audio_data = 1;
+    float detection_threshold = 2;
+    AudioFormat format = 3;
+}
+
+message HealthRequest {
+    string service_name = 1;
+}
+
+// Response messages
+message EmbedResponse {
+    bool success = 1;
+    string message = 2;
+    bytes watermarked_audio = 3;
+    EmbedStats stats = 4;
+}
+
+message ExtractResponse {
+    bool success = 1;
+    string message = 2;
+    string extracted_data = 3;
+    float confidence_score = 4;
+    ExtractStats stats = 5;
+}
+
+message DetectResponse {
+    bool success = 1;
+    string message = 2;
+    bool is_watermarked = 3;
+    float detection_score = 4;
+    DetectStats stats = 5;
+}
+
+message HealthResponse {
+    bool healthy = 1;
+    string version = 2;
+    int64 uptime = 3;
+    ServiceStats stats = 4;
+}
+
+// Supporting messages
+message AudioFormat {
+    int32 sample_rate = 1;
+    int32 channels = 2;
+    int32 bit_depth = 3;
+    string encoding = 4;
+}
+
+message EmbedStats {
+    int32 original_size = 1;
+    int32 watermarked_size = 2;
+    float processing_time = 3;
+    float quality_score = 4;
+}
+
+message ExtractStats {
+    int32 audio_size = 1;
+    float processing_time = 2;
+    int32 watermark_length = 3;
+}
+
+message DetectStats {
+    int32 audio_size = 1;
+    float processing_time = 2;
+    float signal_to_noise_ratio = 3;
+}
+
+message ServiceStats {
+    int64 total_embeds = 1;
+    int64 total_extracts = 2;
+    int64 total_detections = 3;
+    float average_processing_time = 4;
+}

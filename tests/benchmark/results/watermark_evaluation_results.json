@@ -1,0 +1,482 @@
+[
+  {
+    "file": "chirp_100_2000hz.wav",
+    "total_attacks": 9,
+    "successful_extractions": 8,
+    "failed_extractions": 1,
+    "attack_details": [
+      {
+        "attack": "additive_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5368966715349769,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "gaussian_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5722740449756996,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "reverb",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.48322216466333723,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "time_stretch",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4783156518096999,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "pitch_shift",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4815938655490951,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "lowpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4838994105023865,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "highpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4883911962449598,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "clipping",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4692697250398893,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "phase_shift",
+        "severity": 0.5,
+        "success": false,
+        "confidence": 0.43920881271362305,
+        "detected": false,
+        "attack_success": true
+      }
+    ]
+  },
+  {
+    "file": "harmonics_220hz.wav",
+    "total_attacks": 9,
+    "successful_extractions": 8,
+    "failed_extractions": 1,
+    "attack_details": [
+      {
+        "attack": "additive_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5653125481461471,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "gaussian_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5566869565603516,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "reverb",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5481678029027255,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "time_stretch",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5442809689438091,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "pitch_shift",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.549195154944633,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "lowpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5499226446672637,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "highpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.545384043071339,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "clipping",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5523960685374836,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "phase_shift",
+        "severity": 0.5,
+        "success": false,
+        "confidence": 0.43002994656562804,
+        "detected": false,
+        "attack_success": true
+      }
+    ]
+  },
+  {
+    "file": "impulse_train.wav",
+    "total_attacks": 9,
+    "successful_extractions": 8,
+    "failed_extractions": 1,
+    "attack_details": [
+      {
+        "attack": "additive_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.47033039423802764,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "gaussian_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5513789967146592,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "reverb",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4825970368460597,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "time_stretch",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4666659722724768,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "pitch_shift",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4507939670482489,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "lowpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4660015735637263,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "highpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.48608160157669306,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "clipping",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4636868432068266,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "phase_shift",
+        "severity": 0.5,
+        "success": false,
+        "confidence": 0.4354965949058533,
+        "detected": false,
+        "attack_success": true
+      }
+    ]
+  },
+  {
+    "file": "pink_noise.wav",
+    "total_attacks": 9,
+    "successful_extractions": 8,
+    "failed_extractions": 1,
+    "attack_details": [
+      {
+        "attack": "additive_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5332952130039356,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "gaussian_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5266757864458023,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "reverb",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5486922570128756,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "time_stretch",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5400296759840209,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "pitch_shift",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5413167560335357,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "lowpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5364059984428531,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "highpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.549939749110773,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "clipping",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5439820612595011,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "phase_shift",
+        "severity": 0.5,
+        "success": false,
+        "confidence": 0.4342329478263855,
+        "detected": false,
+        "attack_success": true
+      }
+    ]
+  },
+  {
+    "file": "sine_440hz.wav",
+    "total_attacks": 9,
+    "successful_extractions": 8,
+    "failed_extractions": 1,
+    "attack_details": [
+      {
+        "attack": "additive_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5352527524645715,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "gaussian_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5264428744025346,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "reverb",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4788804129369213,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "time_stretch",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4826237692316314,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "pitch_shift",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.49855116147597045,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "lowpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.48537868382528204,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "highpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4997741069510309,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "clipping",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.4849501601790771,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "phase_shift",
+        "severity": 0.5,
+        "success": false,
+        "confidence": 0.43346910715103154,
+        "detected": false,
+        "attack_success": true
+      }
+    ]
+  },
+  {
+    "file": "white_noise.wav",
+    "total_attacks": 9,
+    "successful_extractions": 8,
+    "failed_extractions": 1,
+    "attack_details": [
+      {
+        "attack": "additive_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5538139547149231,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "gaussian_noise",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5600289673008355,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "reverb",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.553988367904728,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "time_stretch",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5492689814732558,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "pitch_shift",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5573074581788069,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "lowpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5498463019593326,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "highpass_filter",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.5535534080692561,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "clipping",
+        "severity": 0.5,
+        "success": true,
+        "confidence": 0.541435793901617,
+        "detected": true,
+        "attack_success": true
+      },
+      {
+        "attack": "phase_shift",
+        "severity": 0.5,
+        "success": false,
+        "confidence": 0.43457476258277894,
+        "detected": false,
+        "attack_success": true
+      }
+    ]
+  }
+]
