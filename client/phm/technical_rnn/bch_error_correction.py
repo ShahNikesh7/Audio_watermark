@@ -107,10 +107,45 @@ class BCHEncoder(nn.Module):
             self.error_correction_capability = 64
             self.actual_code_rate = self.message_length / self.codeword_length
         else:
-            # Very large messages (like 1000 bits): Efficient protection
-            self.codeword_length = 2047
-            self.error_correction_capability = 128
+            # Very large messages (like 1000 bits): Use practical Reed-Solomon parameters
+            # Reed-Solomon works best with symbol-based processing
+            # Convert bits to bytes for RS processing, then back to bits
+
+            # Calculate optimal parameters for large payloads
+            # Use 8-bit symbols (bytes) for Reed-Solomon processing
+            message_bytes = (self.message_length + 7) // 8  # Convert bits to bytes, round up
+
+            # Use standard Reed-Solomon parameters that work reliably
+            # For large messages, use moderate error correction
+            if message_bytes <= 64:
+                # Smaller byte payloads: use higher protection
+                rs_parity_bytes = 16
+                rs_total_bytes = message_bytes + rs_parity_bytes
+            elif message_bytes <= 128:
+                # Medium byte payloads: balanced protection
+                rs_parity_bytes = 32
+                rs_total_bytes = message_bytes + rs_parity_bytes
+            else:
+                # Large byte payloads: use chunked approach
+                self.chunk_size = 64  # Process in 64-byte chunks
+                self.num_chunks = (message_bytes + self.chunk_size - 1) // self.chunk_size
+
+                # Each chunk gets error correction
+                chunk_parity_bytes = 16  # 16 parity bytes per chunk
+                chunk_total_bytes = self.chunk_size + chunk_parity_bytes
+
+                rs_total_bytes = chunk_total_bytes * self.num_chunks
+                rs_parity_bytes = rs_total_bytes - message_bytes
+
+            # Convert back to bit-level parameters for compatibility
+            self.codeword_length = rs_total_bytes * 8  # Convert bytes back to bits
+            self.error_correction_capability = rs_parity_bytes * 8  # Convert to bits
             self.actual_code_rate = self.message_length / self.codeword_length
+
+            # Store RS-specific parameters
+            self.rs_message_bytes = message_bytes
+            self.rs_parity_bytes = rs_parity_bytes
+            self.rs_total_bytes = rs_total_bytes
         
         # Adjust for better robustness against common attacks
         if self.actual_code_rate > 0.8:
@@ -137,24 +172,94 @@ class BCHEncoder(nn.Module):
         """Initialize BCH codec using reedsolo or fallback."""
         if REEDSOLO_AVAILABLE:
             try:
-                # Create Reed-Solomon codec (BCH is a subset of Reed-Solomon)
-                self.rs_codec = reedsolo.RSCodec(
-                    nsym=self.codeword_length - self.message_length,
-                    nsize=self.codeword_length,
-                    fcr=self.fcr,
-                    prim=self.prim,
-                    generator=self.primitive_poly
-                )
+                # Use the RS-specific parameters calculated above
+                if hasattr(self, 'rs_parity_bytes'):
+                    # Use the byte-level parameters for proper RS operation
+                    self.rs_codec = reedsolo.RSCodec(
+                        nsym=self.rs_parity_bytes,
+                        nsize=self.rs_total_bytes,
+                        fcr=self.fcr,
+                        prim=self.prim,
+                        generator=self.primitive_poly
+                    )
+                    logger.info(f"BCH codec initialized with RS parameters: "
+                              f"message_bytes={self.rs_message_bytes}, "
+                              f"parity_bytes={self.rs_parity_bytes}, "
+                              f"total_bytes={self.rs_total_bytes}")
+                elif hasattr(self, 'chunk_size'):
+                    # Legacy chunked approach for very large messages
+                    chunk_message_bytes = min(self.chunk_size, self.rs_message_bytes)
+                    chunk_parity_bytes = min(16, self.rs_parity_bytes // max(1, self.num_chunks))
+                    chunk_total_bytes = chunk_message_bytes + chunk_parity_bytes
+
+                    self.rs_codec = reedsolo.RSCodec(
+                        nsym=chunk_parity_bytes,
+                        nsize=chunk_total_bytes,
+                        fcr=self.fcr,
+                        prim=self.prim,
+                        generator=self.primitive_poly
+                    )
+                    logger.info(f"BCH codec initialized with chunked RS: "
+                              f"chunk_bytes={chunk_message_bytes}, parity={chunk_parity_bytes}")
+                else:
+                    # Standard approach for smaller messages - convert to bytes
+                    message_bytes = (self.message_length + 7) // 8
+                    parity_bytes = min(32, (self.codeword_length - self.message_length) // 8)
+                    total_bytes = message_bytes + parity_bytes
+
+                    self.rs_codec = reedsolo.RSCodec(
+                        nsym=parity_bytes,
+                        nsize=total_bytes,
+                        fcr=self.fcr,
+                        prim=self.prim,
+                        generator=self.primitive_poly
+                    )
+                    logger.info(f"BCH codec initialized: nsym={parity_bytes}, nsize={total_bytes}")
+
                 self.use_reedsolo = True
-                logger.info("BCH codec initialized with reedsolo library")
+                logger.info("BCH codec initialized successfully with reedsolo library")
             except Exception as e:
                 logger.warning(f"Failed to initialize reedsolo codec: {e}. Using fallback.")
+                logger.warning("This may be due to parameter constraints. Consider adjusting message_length or code_rate.")
                 self.use_reedsolo = False
                 self._initialize_fallback_codec()
         else:
             self.use_reedsolo = False
             self._initialize_fallback_codec()
     
+    def _encode_chunk(self, chunk_bits: np.ndarray) -> np.ndarray:
+        """
+        Encode a chunk of bits using the configured BCH codec.
+
+        Args:
+            chunk_bits: Binary chunk to encode
+
+        Returns:
+            Encoded chunk bits
+        """
+        # Pack bits to bytes
+        padded = chunk_bits
+        if len(padded) % 8 != 0:
+            pad_len = 8 - (len(padded) % 8)
+            padded = np.pad(padded, (0, pad_len), constant_values=0)
+        byte_arr = np.packbits(padded).tobytes()
+
+        # Encode with reedsolo
+        encoded_bytes = self.rs_codec.encode(byte_arr)
+
+        # Unpack back to bits
+        encoded_bits = np.unpackbits(np.frombuffer(encoded_bytes, dtype=np.uint8))
+
+        # Return only the relevant part (message + parity for this chunk)
+        chunk_parity_length = min(32, self.error_correction_capability)
+        expected_length = len(chunk_bits) + chunk_parity_length
+
+        if len(encoded_bits) > expected_length:
+            return encoded_bits[:expected_length]
+        else:
+            # Pad if necessary
+            return np.pad(encoded_bits, (0, expected_length - len(encoded_bits)))
+
     def _initialize_fallback_codec(self):
         """Initialize simple repetition coding as fallback."""
         # Simple repetition code for basic error correction
@@ -182,21 +287,33 @@ class BCHEncoder(nn.Module):
             
             if self.use_reedsolo:
                 try:
-                    # Pack bits to bytes
-                    padded = msg_bits
-                    if len(padded) % 8 != 0:
-                        pad_len = 8 - (len(padded) % 8)
-                        padded = np.pad(padded, (0, pad_len), constant_values=0)
-                    byte_arr = np.packbits(padded).tobytes()
-                    encoded_bytes = self.rs_codec.encode(byte_arr)
-                    # Unpack back to bits
+                    # Convert bits to bytes for RS processing
+                    # Pad to byte boundary if necessary
+                    padded_bits = msg_bits
+                    if len(padded_bits) % 8 != 0:
+                        pad_len = 8 - (len(padded_bits) % 8)
+                        padded_bits = np.pad(padded_bits, (0, pad_len), constant_values=0)
+
+                    # Convert to bytes
+                    message_bytes = np.packbits(padded_bits).tobytes()
+
+                    # Apply Reed-Solomon encoding
+                    encoded_bytes = self.rs_codec.encode(message_bytes)
+
+                    # Convert back to bits
                     encoded_bits_arr = np.unpackbits(np.frombuffer(encoded_bytes, dtype=np.uint8))
-                    # Truncate / pad to codeword length
+
+                    # Ensure we have the expected codeword length
                     if len(encoded_bits_arr) < self.codeword_length:
-                        encoded_bits_arr = np.pad(encoded_bits_arr, (0, self.codeword_length - len(encoded_bits_arr)))
-                    else:
+                        # Pad with zeros if shorter
+                        encoded_bits_arr = np.pad(encoded_bits_arr,
+                                                 (0, self.codeword_length - len(encoded_bits_arr)))
+                    elif len(encoded_bits_arr) > self.codeword_length:
+                        # Truncate if longer
                         encoded_bits_arr = encoded_bits_arr[:self.codeword_length]
+
                     encoded_bits.append(encoded_bits_arr)
+
                 except Exception as e:
                     logger.warning(f"BCH encoding failed (reedsolo fallback): {e}. Using repetition fallback.")
                     encoded_msg = self._fallback_encode(msg_bits)

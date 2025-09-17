@@ -68,22 +68,29 @@ class GRUModule(nn.Module):
         
         # BCH error correction integration (Task 1.2.1.3)
         if enable_bch_protection:
-            self.bch_protector = create_optimal_bch_protector(
-                watermark_length=watermark_length,
-                expected_attack_strength=bch_robustness
-            )
-            
-            # Additional layers for watermark bit processing
-            self.watermark_encoder = nn.Linear(hidden_size * 2, watermark_length)
-            self.watermark_decoder = nn.Linear(
-                self.bch_protector.get_protected_length(), 
-                hidden_size
-            )
-            
+            try:
+                self.bch_protector = create_optimal_bch_protector(
+                    watermark_length=watermark_length,
+                    expected_attack_strength=bch_robustness
+                )
+
+                # Additional layers for watermark bit processing
+                self.watermark_encoder = nn.Linear(hidden_size * 2, watermark_length)
+                self.watermark_decoder = nn.Linear(
+                    self.bch_protector.get_protected_length(),
+                    hidden_size
+                )
+            except Exception as e:
+                logger.warning(f"BCH initialization failed: {e}. Continuing without BCH protection.")
+                self.bch_protector = None
+                enable_bch_protection = False
+        else:
+            self.bch_protector = None
+
+        if self.bch_protector is not None:
             logger.info(f"GRU Module initialized with BCH protection: "
                        f"expansion_factor={self.bch_protector.get_expansion_factor():.2f}")
         else:
-            self.bch_protector = None
             logger.info("GRU Module initialized without BCH protection")
     
     def forward(self, x, mode='quality_assessment'):

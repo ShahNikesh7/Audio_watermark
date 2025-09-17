@@ -70,23 +70,29 @@ class ConformerLite(nn.Module):
         
         # BCH error correction integration (Task 1.2.1.3)
         if enable_bch_protection:
-            self.bch_protector = create_optimal_bch_protector(
-                watermark_length=watermark_length,
-                expected_attack_strength=bch_robustness
-            )
-            
-            # Watermark processing layers
-            self.watermark_generator = nn.Linear(ff_dim, watermark_length)
-            self.watermark_attention = nn.MultiheadAttention(
-                ff_dim, num_heads=min(num_heads, 4), dropout=dropout, batch_first=True
-            )
-            self.watermark_fusion = nn.Linear(ff_dim + self.bch_protector.get_protected_length(), ff_dim)
-            
-            logger.info(f"Conformer Lite initialized with BCH protection: "
-                       f"expansion_factor={self.bch_protector.get_expansion_factor():.2f}")
+            try:
+                self.bch_protector = create_optimal_bch_protector(
+                    watermark_length=watermark_length,
+                    expected_attack_strength=bch_robustness
+                )
+
+                # Watermark processing layers
+                self.watermark_generator = nn.Linear(ff_dim, watermark_length)
+                self.watermark_attention = nn.MultiheadAttention(
+                    ff_dim, num_heads=min(num_heads, 4), dropout=dropout, batch_first=True
+                )
+                self.watermark_fusion = nn.Linear(ff_dim + self.bch_protector.get_protected_length(), ff_dim)
+
+                logger.info(f"Conformer Lite initialized with BCH protection: "
+                           f"expansion_factor={self.bch_protector.get_expansion_factor():.2f}")
+            except Exception as e:
+                logger.warning(f"BCH initialization failed: {e}. Continuing without BCH protection.")
+                self.bch_protector = None
+                enable_bch_protection = False
         else:
             self.bch_protector = None
-            logger.info("Conformer Lite initialized without BCH protection")
+
+        # Final status logging is handled above in the conditional blocks
     
     def forward(self, x, mode='quality_assessment', watermark_data=None):
         """

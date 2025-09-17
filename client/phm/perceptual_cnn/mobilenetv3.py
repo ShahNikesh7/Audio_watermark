@@ -124,13 +124,18 @@ class MobileNetV3(nn.Module):
         
         # Initialize BCH watermark protector
         if self.enable_bch:
-            self.bch_protector = CNNBCHWatermarkProtector(
-                message_length=message_length,
-                robustness_level=robustness_level,
-                cnn_model_type="mobilenetv3"
-            )
-            logger.info(f"BCH protection enabled for MobileNetV3: "
-                       f"msg_len={message_length}, robustness={robustness_level}")
+            try:
+                self.bch_protector = CNNBCHWatermarkProtector(
+                    message_length=message_length,
+                    robustness_level=robustness_level,
+                    cnn_model_type="mobilenetv3"
+                )
+                logger.info(f"BCH protection enabled for MobileNetV3: "
+                           f"msg_len={message_length}, robustness={robustness_level}")
+            except Exception as e:
+                logger.warning(f"BCH initialization failed: {e}. Continuing without BCH protection.")
+                self.bch_protector = None
+                self.enable_bch = False
         
         # Initialize adaptive bit allocation components (Task 1.2.2.1)
         if self.enable_adaptive_allocation:
@@ -425,20 +430,28 @@ class MobileNetV3(nn.Module):
             temp_robustness = "low"
         
         # Create temporary BCH protector with adapted parameters
-        temp_protector = CNNBCHWatermarkProtector(
-            message_length=self.message_length,
-            robustness_level=temp_robustness,
-            cnn_model_type="mobilenetv3"
-        )
+        try:
+            temp_protector = CNNBCHWatermarkProtector(
+                message_length=self.message_length,
+                robustness_level=temp_robustness,
+                cnn_model_type="mobilenetv3"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create temporary BCH protector: {e}")
+            temp_protector = None
         
         # Encode and embed with adapted parameters
-        encoded_bits = temp_protector.encode_watermark(message_bits)
+        if temp_protector is not None:
+            encoded_bits = temp_protector.encode_watermark(message_bits)
+            # Adaptive embedding strength
+            base_strength = 0.03 + 0.07 * content_complexity
+            scaled_bits = (encoded_bits * 2.0 - 1.0) * base_strength
+        else:
+            # Fallback: use original message bits without BCH encoding
+            base_strength = 0.03 + 0.07 * content_complexity
+            scaled_bits = (message_bits * 2.0 - 1.0) * base_strength
+
         embedding_signals = self.forward(audio_features, mode="embed")
-        
-        # Adaptive embedding strength
-        base_strength = 0.03 + 0.07 * content_complexity
-        scaled_bits = (encoded_bits * 2.0 - 1.0) * base_strength
-        
         watermarked_signals = embedding_signals + scaled_bits
         
         adaptation_info = {
@@ -503,11 +516,21 @@ class MobileNetV3(nn.Module):
         if target_memory_mb < 25.0:
             capacity_constraints["max_codeword_length"] = 48
         
-        return optimize_bch_parameters_for_cnn(
-            cnn_model_type="mobilenetv3",
-            robustness_requirements=robustness_requirements,
-            capacity_constraints=capacity_constraints
-        )
+        try:
+            return optimize_bch_parameters_for_cnn(
+                cnn_model_type="mobilenetv3",
+                robustness_requirements=robustness_requirements,
+                capacity_constraints=capacity_constraints
+            )
+        except Exception as e:
+            logger.warning(f"BCH parameter optimization failed: {e}")
+            # Return default parameters
+            return {
+                "message_length": 128,
+                "codeword_length": 256,
+                "code_rate": 0.5,
+                "error_correction_capability": 32
+            }
     
     def get_mobile_efficiency_metrics(self) -> Dict[str, float]:
         """

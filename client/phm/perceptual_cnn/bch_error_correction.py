@@ -65,9 +65,39 @@ class CNNBCHEncoder(nn.Module):
         self.use_optimized_params = use_optimized_params
         self.cnn_awareness = cnn_awareness
         
-        # Calculate codeword length based on code rate
-        self.codeword_length = int(message_length / code_rate)
-        self.parity_length = self.codeword_length - message_length
+        # Calculate codeword length based on practical Reed-Solomon parameters
+        # Use 8-bit symbols (bytes) for Reed-Solomon processing
+        message_bytes = (message_length + 7) // 8  # Convert bits to bytes, round up
+
+        # Use standard Reed-Solomon parameters that work reliably
+        if message_bytes <= 64:
+            # Smaller byte payloads: use higher protection
+            rs_parity_bytes = 16
+            rs_total_bytes = message_bytes + rs_parity_bytes
+        elif message_bytes <= 128:
+            # Medium byte payloads: balanced protection
+            rs_parity_bytes = 32
+            rs_total_bytes = message_bytes + rs_parity_bytes
+        else:
+            # Large byte payloads: use chunked approach
+            self.chunk_size = 64  # Process in 64-byte chunks
+            self.num_chunks = (message_bytes + self.chunk_size - 1) // self.chunk_size
+
+            # Each chunk gets error correction
+            chunk_parity_bytes = 16  # 16 parity bytes per chunk
+            chunk_total_bytes = self.chunk_size + chunk_parity_bytes
+
+            rs_total_bytes = chunk_total_bytes * self.num_chunks
+            rs_parity_bytes = rs_total_bytes - message_bytes
+
+        # Convert back to bit-level parameters for compatibility
+        self.codeword_length = rs_total_bytes * 8  # Convert bytes back to bits
+        self.parity_length = rs_parity_bytes * 8   # Convert to bits
+
+        # Store RS-specific parameters for proper codec initialization
+        self.rs_message_bytes = message_bytes
+        self.rs_parity_bytes = rs_parity_bytes
+        self.rs_total_bytes = rs_total_bytes
         
         # Initialize BCH parameters
         self._initialize_bch_params()
@@ -84,19 +114,58 @@ class CNNBCHEncoder(nn.Module):
         """Initialize BCH codec parameters."""
         if REEDSOLO_AVAILABLE:
             try:
-                # Create Reed-Solomon codec for BCH simulation
-                self.rs_codec = reedsolo.RSCodec(
-                    nsym=self.parity_length,
-                    nsize=self.codeword_length,
-                    fcr=self.fcr,
-                    prim=self.prim,
-                    generator=self.primitive_poly,
-                    c_exp=8
-                )
+                # Use the RS-specific parameters calculated above
+                if hasattr(self, 'rs_parity_bytes'):
+                    # Use the byte-level parameters for proper RS operation
+                    self.rs_codec = reedsolo.RSCodec(
+                        nsym=self.rs_parity_bytes,
+                        nsize=self.rs_total_bytes,
+                        fcr=self.fcr,
+                        prim=self.prim,
+                        generator=self.primitive_poly,
+                        c_exp=8
+                    )
+                    logger.info(f"BCH codec initialized with RS parameters: "
+                              f"message_bytes={self.rs_message_bytes}, "
+                              f"parity_bytes={self.rs_parity_bytes}, "
+                              f"total_bytes={self.rs_total_bytes}")
+                elif hasattr(self, 'chunk_size'):
+                    # Legacy chunked approach for very large messages
+                    chunk_message_bytes = min(self.chunk_size, self.rs_message_bytes)
+                    chunk_parity_bytes = min(16, self.rs_parity_bytes // max(1, self.num_chunks))
+                    chunk_total_bytes = chunk_message_bytes + chunk_parity_bytes
+
+                    self.rs_codec = reedsolo.RSCodec(
+                        nsym=chunk_parity_bytes,
+                        nsize=chunk_total_bytes,
+                        fcr=self.fcr,
+                        prim=self.prim,
+                        generator=self.primitive_poly,
+                        c_exp=8
+                    )
+                    logger.info(f"BCH codec initialized with chunked RS: "
+                              f"chunk_bytes={chunk_message_bytes}, parity={chunk_parity_bytes}")
+                else:
+                    # Standard approach for smaller messages - convert to bytes
+                    message_bytes = (self.message_length + 7) // 8
+                    parity_bytes = min(32, (self.codeword_length - self.message_length) // 8)
+                    total_bytes = message_bytes + parity_bytes
+
+                    self.rs_codec = reedsolo.RSCodec(
+                        nsym=parity_bytes,
+                        nsize=total_bytes,
+                        fcr=self.fcr,
+                        prim=self.prim,
+                        generator=self.primitive_poly,
+                        c_exp=8
+                    )
+                    logger.info(f"BCH codec initialized: nsym={parity_bytes}, nsize={total_bytes}")
+
                 self.encoder_type = "reedsolo"
-                logger.info("Using reedsolo BCH encoder")
+                logger.info("BCH encoder initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to initialize reedsolo: {e}")
+                logger.warning("This may be due to parameter constraints. Consider adjusting message_length or code_rate.")
                 self._initialize_fallback_encoder()
         else:
             self._initialize_fallback_encoder()
