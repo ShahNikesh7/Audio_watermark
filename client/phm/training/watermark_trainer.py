@@ -30,6 +30,7 @@ from ..fusion.fusion_layer import FusionLayer
 from ..psychoacoustic.perceptual_losses import MFCCPerceptualLoss, CombinedPerceptualLoss, create_perceptual_loss
 from ..psychoacoustic.moore_glasberg import MooreGlasbergAnalyzer, PerceptualAnalyzer
 from ...embedding import InvertibleEncoder, AudioWatermarkEmbedder
+from ...extraction import WatermarkDetector
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +235,13 @@ class WatermarkTrainer:
                 hop_length=400,
                 n_critical_bands=24
             ).to(self.device)
+
+        # Watermark detector for BER metric (inference only)
+        self.watermark_detector = WatermarkDetector(
+            audio_channels=1,
+            watermark_dim=128
+        ).to(self.device)
+        self.watermark_detector.eval()
         
         logger.info("Models initialized successfully")
     
@@ -417,6 +425,23 @@ class WatermarkTrainer:
         )
         
         losses['total_loss'] = total_loss.item()
+
+        # Compute BER (bit error rate) via detector (no grad, metric only)
+        try:
+            with torch.no_grad():
+                presence_prob, predicted_vector = self.watermark_detector(watermarked_audio.detach())
+                # Threshold both ground truth and predictions at 0 to form bits
+                gt_bits = (watermark > 0).float()
+                pred_bits = (predicted_vector > 0).float()
+                # Align shapes if needed
+                min_len = min(gt_bits.shape[-1], pred_bits.shape[-1])
+                gt_bits = gt_bits[..., :min_len]
+                pred_bits = pred_bits[..., :min_len]
+                ber = (pred_bits.ne(gt_bits)).float().mean()
+                losses['ber'] = ber.item()
+        except Exception:
+            # If detector not available or any error, skip BER
+            pass
         
         # Backward pass
         total_loss.backward()
@@ -499,8 +524,9 @@ class WatermarkTrainer:
             
             # Update progress bar
             pbar.set_postfix({
-                'MFCC': f"{losses['mfcc_loss']:.4f}",
-                'Total': f"{losses['total_loss']:.4f}",
+                'MFCC': f"{losses.get('mfcc_loss', 0.0):.4f}",
+                'Total': f"{losses.get('total_loss', 0.0):.4f}",
+                'BER': f"{losses.get('ber', 0.0):.4f}",
                 'LR': f"{self.optimizer.param_groups[0]['lr']:.2e}"
             })
         
