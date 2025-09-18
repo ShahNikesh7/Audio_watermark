@@ -5,6 +5,7 @@ Implements comprehensive training pipeline with perceptual loss functions.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
@@ -169,6 +170,9 @@ class WatermarkTrainer:
         self.config = config
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
         self.use_wandb = use_wandb
+        # Caches for GPU mel computation in quality metrics
+        self._mel_basis = None
+        self._hann_window = None
         
         # Initialize models
         self._init_models()
@@ -186,6 +190,8 @@ class WatermarkTrainer:
         self.epoch = 0
         self.global_step = 0
         self.best_loss = float('inf')
+        # Track the loss value at the moment we last wrote a checkpoint
+        self.last_saved_loss = float('inf')
         
         logger.info(f"WatermarkTrainer initialized on device: {self.device}")
     
@@ -351,37 +357,53 @@ class WatermarkTrainer:
         logger.info(f"Data loaders initialized: train_size={len(train_dataset)}")
     
     def _compute_quality_metrics(self, original_audio: torch.Tensor) -> torch.Tensor:
-        """Compute quality metrics using PHM."""
+        """Compute quality metrics using PHM with GPU-accelerated mel path."""
         if not hasattr(self, 'perceptual_cnn'):
             return torch.tensor(0.8, device=self.device).expand(original_audio.shape[0])
-        
+
         with torch.no_grad():
-            # Extract perceptual features (convert to mel-spectrogram)
-            batch_size = original_audio.shape[0]
-            mel_features = []
-            
-            for i in range(batch_size):
-                audio_np = original_audio[i, 0].cpu().numpy()
-                mel_spec = librosa.feature.melspectrogram(
-                    y=audio_np, sr=self.config['data']['sample_rate'], 
-                    n_mels=128, hop_length=400, win_length=1000
-                )
-                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-                mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
-                mel_tensor = torch.FloatTensor(mel_spec_norm).unsqueeze(0).unsqueeze(0)
-                mel_tensor = torch.nn.functional.interpolate(
-                    mel_tensor, size=(128, 128), mode='bilinear', align_corners=False
-                )
-                mel_features.append(mel_tensor)
-            
-            mel_batch = torch.cat(mel_features, dim=0).to(self.device)
-            
-            # Get perceptual features
-            perceptual_features = self.perceptual_cnn(mel_batch)
-            
-            # Simple quality score (can be enhanced)
+            device = original_audio.device
+            sr = int(self.config['data']['sample_rate'])
+            n_fft = 1000
+            hop = 400
+            n_mels = 128
+
+            # Cache window and mel filterbank on device
+            if self._hann_window is None or self._hann_window.device != device:
+                self._hann_window = torch.hann_window(n_fft, device=device)
+            if self._mel_basis is None or self._mel_basis.device != device:
+                mel_fb = librosa.filters.mel(sr=sr, n_fft=n_fft, n_mels=n_mels)
+                self._mel_basis = torch.tensor(mel_fb, dtype=torch.float32, device=device)
+
+            # [B, 1, T] -> [B, T] float32
+            audio_bt = original_audio[:, 0, :].float()
+
+            # STFT on GPU (keep in float32; no autocast)
+            stft = torch.stft(
+                audio_bt,
+                n_fft=n_fft,
+                hop_length=hop,
+                win_length=n_fft,
+                window=self._hann_window,
+                return_complex=True
+            )
+            power_spec = (stft.abs() ** 2).float()
+
+            # Mel projection: [n_mels, F] @ [B, F, T] -> [B, n_mels, T]
+            mel_spec = torch.matmul(self._mel_basis, power_spec)
+
+            # Convert to dB-like scale and normalize per sample
+            mel_db = 10.0 * torch.log10(torch.clamp(mel_spec, min=1e-10))
+            mel_min = mel_db.amin(dim=(1, 2), keepdim=True)
+            mel_max = mel_db.amax(dim=(1, 2), keepdim=True)
+            mel_norm = (mel_db - mel_min) / (mel_max - mel_min + 1e-8)
+
+            # Resize to CNN input [B, 1, 128, 128]
+            mel_img = F.interpolate(mel_norm.unsqueeze(1), size=(128, 128), mode='bilinear', align_corners=False)
+
+            # Pass through CNN and produce quality score
+            perceptual_features = self.perceptual_cnn(mel_img)
             quality_scores = torch.sigmoid(perceptual_features.mean(dim=1))
-            
             return quality_scores
     
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -632,14 +654,20 @@ class WatermarkTrainer:
             if self.use_wandb and WANDB_AVAILABLE:
                 wandb.log(metrics, step=self.global_step)
             
-            # Save checkpoint
-            checkpoint_path = os.path.join(save_dir, f'checkpoint_epoch_{epoch + 1}.pth')
-            is_best = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss', float('inf'))) < self.best_loss
-            
-            if is_best:
-                self.best_loss = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss'))
-            
-            self.save_checkpoint(checkpoint_path, is_best)
+            # Save checkpoint: force every 10 epochs, otherwise only if improved vs last saved
+            current_loss = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss', float('inf')))
+            force_interval = 10
+            should_force_save = ((epoch + 1) % force_interval) == 0
+            should_improve_save = current_loss < self.last_saved_loss
+
+            if should_force_save or should_improve_save:
+                is_best = current_loss < self.best_loss
+                if is_best:
+                    self.best_loss = current_loss
+
+                checkpoint_path = os.path.join(save_dir, f'checkpoint_epoch_{epoch + 1}.pth')
+                self.save_checkpoint(checkpoint_path, is_best)
+                self.last_saved_loss = current_loss
             
             # Save config
             config_path = os.path.join(save_dir, 'config.json')
