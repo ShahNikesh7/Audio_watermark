@@ -305,13 +305,43 @@ class WatermarkTrainer:
             betas=opt_config.get('betas', (0.9, 0.999))
         )
         
-        # Learning rate scheduler
-        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        # Learning rate scheduler with warmup
+        warmup_steps = int(self.config.get('training', {}).get('warmup_steps', 500))
+        cosine_t0 = opt_config.get('scheduler_t0', 10)
+        cosine_tmult = opt_config.get('scheduler_tmult', 2)
+        eta_min = opt_config.get('min_lr', 1e-6)
+
+        class WarmupThenCosine(optim.lr_scheduler._LRScheduler):
+            def __init__(self, optimizer, warmup_steps, base_scheduler, last_epoch=-1):
+                self.warmup_steps = max(1, warmup_steps)
+                self.base_scheduler = base_scheduler
+                super().__init__(optimizer, last_epoch)
+
+            def get_lr(self):
+                if self.last_epoch < self.warmup_steps:
+                    scale = float(self.last_epoch + 1) / float(self.warmup_steps)
+                    return [group['initial_lr'] * scale for group in self.optimizer.param_groups]
+                # Delegate to base scheduler after warmup
+                return self.base_scheduler.get_last_lr()
+
+            def step(self, epoch=None):
+                if self.last_epoch < self.warmup_steps - 1:
+                    super().step(epoch)
+                else:
+                    # Step base scheduler starting from epoch 0 at warmup end
+                    self.base_scheduler.step(epoch if epoch is not None else None)
+                    self.last_epoch += 1
+
+        for group in self.optimizer.param_groups:
+            group.setdefault('initial_lr', group['lr'])
+
+        base_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
             self.optimizer,
-            T_0=opt_config.get('scheduler_t0', 10),
-            T_mult=opt_config.get('scheduler_tmult', 2),
-            eta_min=opt_config.get('min_lr', 1e-6)
+            T_0=cosine_t0,
+            T_mult=cosine_tmult,
+            eta_min=eta_min
         )
+        self.scheduler = WarmupThenCosine(self.optimizer, warmup_steps, base_scheduler)
         
         logger.info("Optimizers initialized successfully")
     
@@ -423,7 +453,7 @@ class WatermarkTrainer:
         mfcc_loss = self.mfcc_loss(original_audio.squeeze(1), watermarked_audio.squeeze(1))
         losses['mfcc_loss'] = mfcc_loss.item()
         
-        # 2. Combined perceptual loss
+        # 2. Combined perceptual loss (exclude MFCC here to avoid double-counting)
         perceptual_losses = self.perceptual_loss(original_audio.squeeze(1), watermarked_audio.squeeze(1))
         losses.update({k: v.item() for k, v in perceptual_losses.items()})
         
@@ -431,17 +461,23 @@ class WatermarkTrainer:
         reconstruction_loss = self.reconstruction_loss(watermarked_audio, original_audio)
         losses['reconstruction_loss'] = reconstruction_loss.item()
         
-        # 4. Quality preservation loss
-        original_quality = self._compute_quality_metrics(original_audio)
-        watermarked_quality = self._compute_quality_metrics(watermarked_audio)
-        quality_loss = self.quality_loss(watermarked_quality, original_quality)
-        losses['quality_loss'] = quality_loss.item()
+        # 4. Quality preservation loss (compute less frequently)
+        quality_every = int(self.config.get('training', {}).get('quality_every', 1))
+        if quality_every <= 1 or (self.global_step % quality_every) == 0:
+            original_quality = self._compute_quality_metrics(original_audio)
+            watermarked_quality = self._compute_quality_metrics(watermarked_audio)
+            quality_loss = self.quality_loss(watermarked_quality, original_quality)
+        else:
+            quality_loss = torch.tensor(0.0, device=self.device)
+        losses['quality_loss'] = float(quality_loss.item()) if torch.is_tensor(quality_loss) else float(quality_loss)
         
         # Combine losses with weights
         loss_weights = self.config['loss']
+        # Exclude MFCC inside combined perceptual loss to avoid double counting
+        perceptual_component = perceptual_losses['spectral_loss'] + perceptual_losses['temporal_loss']
         total_loss = (
             loss_weights.get('mfcc_weight', 1.0) * mfcc_loss +
-            loss_weights.get('perceptual_weight', 1.0) * perceptual_losses['total_perceptual_loss'] +
+            loss_weights.get('perceptual_weight', 1.0) * perceptual_component +
             loss_weights.get('reconstruction_weight', 0.1) * reconstruction_loss +
             loss_weights.get('quality_weight', 0.1) * quality_loss
         )
@@ -727,9 +763,9 @@ def create_training_config(
             'mfcc_loss_weight': mfcc_loss_weight,
             'spectral_weight': 0.5,
             'temporal_weight': 0.3,
-            'perceptual_weight': 1.0,
+            'perceptual_weight': 0.5,  # lower to reduce dominance, since MFCC is separate
             'reconstruction_weight': 0.1,
-            'quality_weight': 0.1
+            'quality_weight': 0.02  # less noisy
         },
         'optimizer': {
             'learning_rate': learning_rate,
@@ -741,6 +777,8 @@ def create_training_config(
         },
         'training': {
             'epochs': epochs,
-            'grad_clip': 1.0
+            'grad_clip': 1.0,
+            'warmup_steps': 500,
+            'quality_every': 3
         }
     }
