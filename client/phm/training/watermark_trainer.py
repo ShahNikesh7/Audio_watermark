@@ -654,17 +654,12 @@ class WatermarkTrainer:
             if self.use_wandb and WANDB_AVAILABLE:
                 wandb.log(metrics, step=self.global_step)
             
-            # Save checkpoint: force every 10 epochs, otherwise only if improved vs last saved
-            current_loss = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss', float('inf')))
-            force_interval = 10
-            should_force_save = ((epoch + 1) % force_interval) == 0
-            should_improve_save = current_loss < self.last_saved_loss
-
-            if should_force_save or should_improve_save:
+            # Save checkpoint strictly every 5 epochs
+            if ((epoch + 1) % 5) == 0:
+                current_loss = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss', float('inf')))
                 is_best = current_loss < self.best_loss
                 if is_best:
                     self.best_loss = current_loss
-
                 checkpoint_path = os.path.join(save_dir, f'checkpoint_epoch_{epoch + 1}.pth')
                 self.save_checkpoint(checkpoint_path, is_best)
                 self.last_saved_loss = current_loss
