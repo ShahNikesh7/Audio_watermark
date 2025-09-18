@@ -192,7 +192,7 @@ def main():
 
         print("Distributed training completed successfully!")
         print(f"Results saved to: {output_dir}")
-        print("Check checkpoints in rank-specific subdirectories"
+        print("Check checkpoints in rank-specific subdirectories")
 
     except Exception as e:
         print(f"Distributed training failed: {e}")
