@@ -35,7 +35,7 @@ def plot_and_save_spectrograms(original_audio: np.ndarray,
     Create a before/after spectrogram figure and save it next to the output audio.
     Returns the saved image path.
     """
-    n_fft = 1024
+    n_fft = 2048
     hop = 256
 
     # Compute magnitude spectrograms in dB

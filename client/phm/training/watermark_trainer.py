@@ -237,8 +237,8 @@ class WatermarkTrainer:
         if model_config.get('use_psychoacoustic', True):
             self.perceptual_analyzer = PerceptualAnalyzer(
                 sample_rate=self.config['data']['sample_rate'],
-                n_fft=1000,
-                hop_length=400,
+                n_fft=2048,
+                hop_length=256,
                 n_critical_bands=24
             ).to(self.device)
 
@@ -259,7 +259,7 @@ class WatermarkTrainer:
         self.mfcc_loss = MFCCPerceptualLoss(
             n_mfcc=loss_config.get('n_mfcc', 13),
             n_fft=loss_config.get('n_fft', 2048),
-            hop_length=loss_config.get('hop_length', 512),
+            hop_length=loss_config.get('hop_length', 256),
             sample_rate=self.config['data']['sample_rate'],
             weight=loss_config.get('mfcc_weight', 1.0)
         ).to(self.device)
@@ -269,7 +269,9 @@ class WatermarkTrainer:
             mfcc_weight=loss_config.get('mfcc_weight', 1.0),
             spectral_weight=loss_config.get('spectral_weight', 0.5),
             temporal_weight=loss_config.get('temporal_weight', 0.3),
-            sample_rate=self.config['data']['sample_rate']
+            sample_rate=self.config['data']['sample_rate'],
+            n_fft=loss_config.get('n_fft', 2048),
+            hop_length=loss_config.get('hop_length', 256)
         ).to(self.device)
         
         # Reconstruction loss
@@ -394,8 +396,8 @@ class WatermarkTrainer:
         with torch.no_grad():
             device = original_audio.device
             sr = int(self.config['data']['sample_rate'])
-            n_fft = 1000
-            hop = 400
+            n_fft = 2048
+            hop = 256
             n_mels = 128
 
             # Cache window and mel filterbank on device
@@ -759,7 +761,7 @@ def create_training_config(
             'enable_mfcc_loss': enable_mfcc_loss,
             'n_mfcc': 13,
             'n_fft': 2048,
-            'hop_length': 512,
+            'hop_length': 256,
             'mfcc_loss_weight': mfcc_loss_weight,
             'spectral_weight': 0.5,
             'temporal_weight': 0.3,

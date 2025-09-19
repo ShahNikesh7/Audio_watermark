@@ -29,7 +29,7 @@ class MFCCPerceptualLoss(nn.Module):
     def __init__(self, 
                  n_mfcc: int = 13,
                  n_fft: int = 2048,
-                 hop_length: int = 512,
+                 hop_length: int = 256,
                  n_mels: int = 128,
                  sample_rate: int = 22050,
                  f_min: float = 0.0,
@@ -163,7 +163,7 @@ class SpectralPerceptualLoss(nn.Module):
     
     def __init__(self, 
                  n_fft: int = 2048,
-                 hop_length: int = 512,
+                 hop_length: int = 256,
                  n_mels: int = 128,
                  sample_rate: int = 22050,
                  weight: float = 1.0):
@@ -263,7 +263,9 @@ class CombinedPerceptualLoss(nn.Module):
                  mfcc_weight: float = 1.0,
                  spectral_weight: float = 0.5,
                  temporal_weight: float = 0.3,
-                 sample_rate: int = 22050):
+                 sample_rate: int = 22050,
+                 n_fft: int = 2048,
+                 hop_length: int = 256):
         """
         Initialize combined perceptual loss.
         
@@ -277,12 +279,16 @@ class CombinedPerceptualLoss(nn.Module):
         
         self.mfcc_loss = MFCCPerceptualLoss(
             weight=mfcc_weight,
-            sample_rate=sample_rate
+            sample_rate=sample_rate,
+            n_fft=n_fft,
+            hop_length=hop_length
         )
         
         self.spectral_loss = SpectralPerceptualLoss(
             weight=spectral_weight,
-            sample_rate=sample_rate
+            sample_rate=sample_rate,
+            n_fft=n_fft,
+            hop_length=hop_length
         )
         
         self.temporal_weight = temporal_weight
