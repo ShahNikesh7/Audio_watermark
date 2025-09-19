@@ -3,6 +3,7 @@
 Watermarking Project
 
 **Author:** Vardaan Kapoor 
+**Co-Author:** Nikesh Shah
 
 ---
 
