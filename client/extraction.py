@@ -133,8 +133,8 @@ class AudioWatermarkExtractor:
     def _init_psychoacoustic_analyzer(self):
         """Initialize psychoacoustic analysis components (Moore-Glasberg + neural analyzer)."""
         try:
-            self.n_fft = 1000
-            self.hop_length = 400
+            self.n_fft = 2048
+            self.hop_length = 256
             self.n_critical_bands = 24
             
             self.moore_glasberg_analyzer = MooreGlasbergAnalyzer(
@@ -219,7 +219,7 @@ class AudioWatermarkExtractor:
         """Extract perceptual features using mel-spectrogram."""
         # Generate mel-spectrogram
         mel_spec = librosa.feature.melspectrogram(
-            y=audio, sr=sr, n_mels=128, hop_length=400, win_length=1000
+            y=audio, sr=sr, n_mels=128, hop_length=256, win_length=2048
         )
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
         
@@ -245,7 +245,7 @@ class AudioWatermarkExtractor:
         """Extract technical features for quality assessment."""
         features = []
         # RMS Energy
-        rms = librosa.feature.rms(y=audio, hop_length=400)[0]
+        rms = librosa.feature.rms(y=audio, hop_length=256)[0]
         features.extend([float(np.mean(rms)), float(np.std(rms))])
 
         # Spectral features

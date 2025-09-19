@@ -5,6 +5,7 @@ Implements comprehensive training pipeline with perceptual loss functions.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
@@ -169,6 +170,9 @@ class WatermarkTrainer:
         self.config = config
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
         self.use_wandb = use_wandb
+        # Caches for GPU mel computation in quality metrics
+        self._mel_basis = None
+        self._hann_window = None
         
         # Initialize models
         self._init_models()
@@ -186,6 +190,8 @@ class WatermarkTrainer:
         self.epoch = 0
         self.global_step = 0
         self.best_loss = float('inf')
+        # Track the loss value at the moment we last wrote a checkpoint
+        self.last_saved_loss = float('inf')
         
         logger.info(f"WatermarkTrainer initialized on device: {self.device}")
     
@@ -231,8 +237,8 @@ class WatermarkTrainer:
         if model_config.get('use_psychoacoustic', True):
             self.perceptual_analyzer = PerceptualAnalyzer(
                 sample_rate=self.config['data']['sample_rate'],
-                n_fft=1000,
-                hop_length=400,
+                n_fft=2048,
+                hop_length=256,
                 n_critical_bands=24
             ).to(self.device)
 
@@ -253,7 +259,7 @@ class WatermarkTrainer:
         self.mfcc_loss = MFCCPerceptualLoss(
             n_mfcc=loss_config.get('n_mfcc', 13),
             n_fft=loss_config.get('n_fft', 2048),
-            hop_length=loss_config.get('hop_length', 512),
+            hop_length=loss_config.get('hop_length', 256),
             sample_rate=self.config['data']['sample_rate'],
             weight=loss_config.get('mfcc_weight', 1.0)
         ).to(self.device)
@@ -263,7 +269,9 @@ class WatermarkTrainer:
             mfcc_weight=loss_config.get('mfcc_weight', 1.0),
             spectral_weight=loss_config.get('spectral_weight', 0.5),
             temporal_weight=loss_config.get('temporal_weight', 0.3),
-            sample_rate=self.config['data']['sample_rate']
+            sample_rate=self.config['data']['sample_rate'],
+            n_fft=loss_config.get('n_fft', 2048),
+            hop_length=loss_config.get('hop_length', 256)
         ).to(self.device)
         
         # Reconstruction loss
@@ -299,13 +307,43 @@ class WatermarkTrainer:
             betas=opt_config.get('betas', (0.9, 0.999))
         )
         
-        # Learning rate scheduler
-        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        # Learning rate scheduler with warmup
+        warmup_steps = int(self.config.get('training', {}).get('warmup_steps', 500))
+        cosine_t0 = opt_config.get('scheduler_t0', 10)
+        cosine_tmult = opt_config.get('scheduler_tmult', 2)
+        eta_min = opt_config.get('min_lr', 1e-6)
+
+        class WarmupThenCosine(optim.lr_scheduler._LRScheduler):
+            def __init__(self, optimizer, warmup_steps, base_scheduler, last_epoch=-1):
+                self.warmup_steps = max(1, warmup_steps)
+                self.base_scheduler = base_scheduler
+                super().__init__(optimizer, last_epoch)
+
+            def get_lr(self):
+                if self.last_epoch < self.warmup_steps:
+                    scale = float(self.last_epoch + 1) / float(self.warmup_steps)
+                    return [group['initial_lr'] * scale for group in self.optimizer.param_groups]
+                # Delegate to base scheduler after warmup
+                return self.base_scheduler.get_last_lr()
+
+            def step(self, epoch=None):
+                if self.last_epoch < self.warmup_steps - 1:
+                    super().step(epoch)
+                else:
+                    # Step base scheduler starting from epoch 0 at warmup end
+                    self.base_scheduler.step(epoch if epoch is not None else None)
+                    self.last_epoch += 1
+
+        for group in self.optimizer.param_groups:
+            group.setdefault('initial_lr', group['lr'])
+
+        base_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
             self.optimizer,
-            T_0=opt_config.get('scheduler_t0', 10),
-            T_mult=opt_config.get('scheduler_tmult', 2),
-            eta_min=opt_config.get('min_lr', 1e-6)
+            T_0=cosine_t0,
+            T_mult=cosine_tmult,
+            eta_min=eta_min
         )
+        self.scheduler = WarmupThenCosine(self.optimizer, warmup_steps, base_scheduler)
         
         logger.info("Optimizers initialized successfully")
     
@@ -351,37 +389,53 @@ class WatermarkTrainer:
         logger.info(f"Data loaders initialized: train_size={len(train_dataset)}")
     
     def _compute_quality_metrics(self, original_audio: torch.Tensor) -> torch.Tensor:
-        """Compute quality metrics using PHM."""
+        """Compute quality metrics using PHM with GPU-accelerated mel path."""
         if not hasattr(self, 'perceptual_cnn'):
             return torch.tensor(0.8, device=self.device).expand(original_audio.shape[0])
-        
+
         with torch.no_grad():
-            # Extract perceptual features (convert to mel-spectrogram)
-            batch_size = original_audio.shape[0]
-            mel_features = []
-            
-            for i in range(batch_size):
-                audio_np = original_audio[i, 0].cpu().numpy()
-                mel_spec = librosa.feature.melspectrogram(
-                    y=audio_np, sr=self.config['data']['sample_rate'], 
-                    n_mels=128, hop_length=400, win_length=1000
-                )
-                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-                mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
-                mel_tensor = torch.FloatTensor(mel_spec_norm).unsqueeze(0).unsqueeze(0)
-                mel_tensor = torch.nn.functional.interpolate(
-                    mel_tensor, size=(128, 128), mode='bilinear', align_corners=False
-                )
-                mel_features.append(mel_tensor)
-            
-            mel_batch = torch.cat(mel_features, dim=0).to(self.device)
-            
-            # Get perceptual features
-            perceptual_features = self.perceptual_cnn(mel_batch)
-            
-            # Simple quality score (can be enhanced)
+            device = original_audio.device
+            sr = int(self.config['data']['sample_rate'])
+            n_fft = 2048
+            hop = 256
+            n_mels = 128
+
+            # Cache window and mel filterbank on device
+            if self._hann_window is None or self._hann_window.device != device:
+                self._hann_window = torch.hann_window(n_fft, device=device)
+            if self._mel_basis is None or self._mel_basis.device != device:
+                mel_fb = librosa.filters.mel(sr=sr, n_fft=n_fft, n_mels=n_mels)
+                self._mel_basis = torch.tensor(mel_fb, dtype=torch.float32, device=device)
+
+            # [B, 1, T] -> [B, T] float32
+            audio_bt = original_audio[:, 0, :].float()
+
+            # STFT on GPU (keep in float32; no autocast)
+            stft = torch.stft(
+                audio_bt,
+                n_fft=n_fft,
+                hop_length=hop,
+                win_length=n_fft,
+                window=self._hann_window,
+                return_complex=True
+            )
+            power_spec = (stft.abs() ** 2).float()
+
+            # Mel projection: [n_mels, F] @ [B, F, T] -> [B, n_mels, T]
+            mel_spec = torch.matmul(self._mel_basis, power_spec)
+
+            # Convert to dB-like scale and normalize per sample
+            mel_db = 10.0 * torch.log10(torch.clamp(mel_spec, min=1e-10))
+            mel_min = mel_db.amin(dim=(1, 2), keepdim=True)
+            mel_max = mel_db.amax(dim=(1, 2), keepdim=True)
+            mel_norm = (mel_db - mel_min) / (mel_max - mel_min + 1e-8)
+
+            # Resize to CNN input [B, 1, 128, 128]
+            mel_img = F.interpolate(mel_norm.unsqueeze(1), size=(128, 128), mode='bilinear', align_corners=False)
+
+            # Pass through CNN and produce quality score
+            perceptual_features = self.perceptual_cnn(mel_img)
             quality_scores = torch.sigmoid(perceptual_features.mean(dim=1))
-            
             return quality_scores
     
     def train_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -401,7 +455,7 @@ class WatermarkTrainer:
         mfcc_loss = self.mfcc_loss(original_audio.squeeze(1), watermarked_audio.squeeze(1))
         losses['mfcc_loss'] = mfcc_loss.item()
         
-        # 2. Combined perceptual loss
+        # 2. Combined perceptual loss (exclude MFCC here to avoid double-counting)
         perceptual_losses = self.perceptual_loss(original_audio.squeeze(1), watermarked_audio.squeeze(1))
         losses.update({k: v.item() for k, v in perceptual_losses.items()})
         
@@ -409,17 +463,23 @@ class WatermarkTrainer:
         reconstruction_loss = self.reconstruction_loss(watermarked_audio, original_audio)
         losses['reconstruction_loss'] = reconstruction_loss.item()
         
-        # 4. Quality preservation loss
-        original_quality = self._compute_quality_metrics(original_audio)
-        watermarked_quality = self._compute_quality_metrics(watermarked_audio)
-        quality_loss = self.quality_loss(watermarked_quality, original_quality)
-        losses['quality_loss'] = quality_loss.item()
+        # 4. Quality preservation loss (compute less frequently)
+        quality_every = int(self.config.get('training', {}).get('quality_every', 1))
+        if quality_every <= 1 or (self.global_step % quality_every) == 0:
+            original_quality = self._compute_quality_metrics(original_audio)
+            watermarked_quality = self._compute_quality_metrics(watermarked_audio)
+            quality_loss = self.quality_loss(watermarked_quality, original_quality)
+        else:
+            quality_loss = torch.tensor(0.0, device=self.device)
+        losses['quality_loss'] = float(quality_loss.item()) if torch.is_tensor(quality_loss) else float(quality_loss)
         
         # Combine losses with weights
         loss_weights = self.config['loss']
+        # Exclude MFCC inside combined perceptual loss to avoid double counting
+        perceptual_component = perceptual_losses['spectral_loss'] + perceptual_losses['temporal_loss']
         total_loss = (
             loss_weights.get('mfcc_weight', 1.0) * mfcc_loss +
-            loss_weights.get('perceptual_weight', 1.0) * perceptual_losses['total_perceptual_loss'] +
+            loss_weights.get('perceptual_weight', 1.0) * perceptual_component +
             loss_weights.get('reconstruction_weight', 0.1) * reconstruction_loss +
             loss_weights.get('quality_weight', 0.1) * quality_loss
         )
@@ -632,14 +692,15 @@ class WatermarkTrainer:
             if self.use_wandb and WANDB_AVAILABLE:
                 wandb.log(metrics, step=self.global_step)
             
-            # Save checkpoint
-            checkpoint_path = os.path.join(save_dir, f'checkpoint_epoch_{epoch + 1}.pth')
-            is_best = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss', float('inf'))) < self.best_loss
-            
-            if is_best:
-                self.best_loss = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss'))
-            
-            self.save_checkpoint(checkpoint_path, is_best)
+            # Save checkpoint strictly every 5 epochs
+            if ((epoch + 1) % 5) == 0:
+                current_loss = val_metrics.get('val_mfcc_loss', train_metrics.get('mfcc_loss', float('inf')))
+                is_best = current_loss < self.best_loss
+                if is_best:
+                    self.best_loss = current_loss
+                checkpoint_path = os.path.join(save_dir, f'checkpoint_epoch_{epoch + 1}.pth')
+                self.save_checkpoint(checkpoint_path, is_best)
+                self.last_saved_loss = current_loss
             
             # Save config
             config_path = os.path.join(save_dir, 'config.json')
@@ -700,13 +761,13 @@ def create_training_config(
             'enable_mfcc_loss': enable_mfcc_loss,
             'n_mfcc': 13,
             'n_fft': 2048,
-            'hop_length': 512,
+            'hop_length': 256,
             'mfcc_loss_weight': mfcc_loss_weight,
             'spectral_weight': 0.5,
             'temporal_weight': 0.3,
-            'perceptual_weight': 1.0,
+            'perceptual_weight': 0.5,  # lower to reduce dominance, since MFCC is separate
             'reconstruction_weight': 0.1,
-            'quality_weight': 0.1
+            'quality_weight': 0.02  # less noisy
         },
         'optimizer': {
             'learning_rate': learning_rate,
@@ -718,6 +779,8 @@ def create_training_config(
         },
         'training': {
             'epochs': epochs,
-            'grad_clip': 1.0
+            'grad_clip': 1.0,
+            'warmup_steps': 500,
+            'quality_every': 3
         }
     }

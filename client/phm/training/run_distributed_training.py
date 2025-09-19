@@ -41,8 +41,10 @@ def cleanup_distributed():
 def train_worker(rank: int, world_size: int, config: dict, output_dir: str):
     """Worker function for distributed training"""
     try:
-        setup_distributed(rank, world_size, config['master_addr'], config['master_port'])
-
+        dist_cfg = config.get('distributed', {})
+        master_addr = dist_cfg.get('master_addr', os.environ.get('MASTER_ADDR', 'localhost'))
+        master_port = dist_cfg.get('master_port', os.environ.get('MASTER_PORT', '12345'))
+        setup_distributed(rank, world_size, master_addr, master_port)
         # Adjust batch size for distributed training
         config['data']['batch_size'] = config['data']['batch_size'] // world_size
 
@@ -192,7 +194,7 @@ def main():
 
         print("Distributed training completed successfully!")
         print(f"Results saved to: {output_dir}")
-        print("Check checkpoints in rank-specific subdirectories"
+        print("Check checkpoints in rank-specific subdirectories")
 
     except Exception as e:
         print(f"Distributed training failed: {e}")

@@ -171,9 +171,9 @@ class AudioWatermarkEmbedder:
         """Initialize Moore-Glasberg psychoacoustic analyzer."""
         logger.info("Initializing Moore-Glasberg psychoacoustic analyzer...")
         
-        # Standard STFT parameters for psychoacoustic analysis (per specification)
-        self.n_fft = 1000
-        self.hop_length = 400
+        # Standard STFT parameters aligned with training defaults
+        self.n_fft = 2048
+        self.hop_length = 256
         self.n_critical_bands = 24
         
         # Initialize Moore-Glasberg analyzer
@@ -257,7 +257,7 @@ class AudioWatermarkEmbedder:
         """Extract perceptual features using mel-spectrogram."""
         # Generate mel-spectrogram
         mel_spec = librosa.feature.melspectrogram(
-            y=audio, sr=sr, n_mels=128, hop_length=400, win_length=1000
+            y=audio, sr=sr, n_mels=128, hop_length=256, win_length=2048
         )
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
         
@@ -284,7 +284,7 @@ class AudioWatermarkEmbedder:
         features = []
 
         # RMS Energy
-        rms = librosa.feature.rms(y=audio, hop_length=400)[0]
+        rms = librosa.feature.rms(y=audio, hop_length=256)[0]
         features.extend([np.mean(rms), np.std(rms)])
 
         # Spectral features
